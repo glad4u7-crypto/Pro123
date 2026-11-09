@@ -1,0 +1,134 @@
+
+name: TLP Operational Checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      audit:
+        description: Select the audit to run
+        required: true
+        type: choice
+        options:
+          - amfi-live
+          - data-integrity
+          - nifty-fmcg-constituents
+          - nse-classification
+          - nse-live
+          - nse-universe
+          - rs-live
+          - yahoo-live
+
+permissions:
+  contents: read
+
+jobs:
+  operational-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    defaults:
+      run:
+        working-directory: source-import
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: source-import/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile project
+        run: python -m compileall -q .
+
+      - name: AMFI Live Check
+        if: inputs.audit == 'amfi-live'
+        run: python scripts/run_amfi_live_check.py
+
+      - name: Data Integrity Unit Tests
+        if: inputs.audit == 'data-integrity'
+        run: python -m pytest -q
+
+      - name: Download NSE Research Data
+        if: inputs.audit == 'data-integrity'
+        run: |
+          mkdir -p data/raw/nse
+
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/formarketon-lang/TLP-Research-Data/main/31-10-2025-TO-29-10-2026-MARICO-EQ-N-1.csv" \
+            -o data/raw/nse/MARICO_nse.csv
+
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/formarketon-lang/TLP-Research-Data/main/NIFTY%2050_Historical_PR_30102025to29102026.csv" \
+            -o data/raw/nse/NIFTY_50_nse.csv
+
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/formarketon-lang/TLP-Research-Data/main/NIFTY%20FMCG_Historical_PR_30102025to29102026.csv" \
+            -o data/raw/nse/NIFTY_FMCG_nse.csv
+
+          test -s data/raw/nse/MARICO_nse.csv
+          test -s data/raw/nse/NIFTY_50_nse.csv
+          test -s data/raw/nse/NIFTY_FMCG_nse.csv
+
+      - name: Run Data Integrity Audit
+        if: inputs.audit == 'data-integrity'
+        run: |
+          python -m scripts.run_yahoo_live_check
+          python -m scripts.run_data_integrity_audit
+
+      - name: FMCG Constituents Tests
+        if: inputs.audit == 'nifty-fmcg-constituents'
+        run: |
+          python -m pytest -q tests/test_sector_constituents_audit.py
+          python -m scripts.run_sector_constituents_audit
+
+      - name: NSE Classification Source Tests
+        if: inputs.audit == 'nse-classification'
+        run: |
+          python -m pytest -q \
+            tests/test_industry_classification_source_downloader.py \
+            tests/test_nse_classification_taxonomy_extraction.py
+
+      - name: Download Official NSE Classification Sources
+        if: inputs.audit == 'nse-classification'
+        run: |
+          python -m scripts.run_industry_classification_source_downloader
+          python -m scripts.run_nse_classification_taxonomy_extraction
+
+      - name: NSE Live Check
+        if: inputs.audit == 'nse-live'
+        run: python scripts/run_nse_live_check.py
+
+      - name: NSE Universe Live Verification
+        if: inputs.audit == 'nse-universe'
+        run: python scripts/run_nse_universe_live_check.py
+
+      - name: RS Live Verification
+        if: inputs.audit == 'rs-live'
+        run: python scripts/run_rs_live_verification.py
+
+      - name: Yahoo Live Check
+        if: inputs.audit == 'yahoo-live'
+        run: python scripts/run_yahoo_live_check.py
+
+      - name: Upload Audit Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlp-${{ inputs.audit }}-audit
+          path: |
+            source-import/reports/
+            source-import/data/raw/nse/industry_classification_sources/
+            source-import/data/raw/nse/
+            source-import/data/raw/yahoo/
+          if-no-files-found: ignore
+          retention-days: 30
+          
