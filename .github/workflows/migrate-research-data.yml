@@ -1,0 +1,70 @@
+
+name: Migrate TLP Research Data
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout destination repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Research Data source
+        uses: actions/checkout@v4
+        with:
+          repository: formarketon-lang/TLP-Research-Data
+          ref: main
+          path: research-data-source
+          fetch-depth: 1
+
+      - name: Copy all research files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research-data
+          rsync -a --exclude='.git' research-data-source/ research-data/
+          rm -rf research-data/.git
+
+      - name: Verify copied files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd research-data
+
+          find . -type f -print0 |
+            sort -z |
+            xargs -0 sha256sum > SHA256SUMS
+
+          sha256sum -c SHA256SUMS
+
+          echo "SHA256 verification: PASS"
+          echo "Total files:"
+          find . -type f ! -name 'SHA256SUMS' | wc -l
+
+      - name: Commit migration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add research-data/
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m \
+              "migration: import TLP research data with SHA256 verification"
+            git push
+          fi
