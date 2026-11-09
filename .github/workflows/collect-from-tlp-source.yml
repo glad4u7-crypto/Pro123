@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       source_paths:
-        description: "One source path per line"
+        description: "One path per line"
         required: true
         type: string
 
@@ -17,56 +17,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout working repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Collect requested source paths
+      - name: Collect folders
         env:
           SOURCE_PATHS: ${{ inputs.source_paths }}
         run: |
           set -euo pipefail
 
-          git clone \
-            --depth 1 \
-            --filter=blob:none \
+          git clone --depth 1 --filter=blob:none \
             --no-checkout \
             https://github.com/formarketon-lang/123.git \
             source_repo
 
-          while IFS= read -r SOURCE_PATH; do
+          declare -A SEEN=()
+
+          while IFS= read -r SOURCE_PATH || [ -n "$SOURCE_PATH" ]; do
+            SOURCE_PATH="${SOURCE_PATH%$'\r'}"
             [ -z "$SOURCE_PATH" ] && continue
 
             case "$SOURCE_PATH" in
-              /*)
-                echo "Absolute paths are not allowed"
-                exit 1
+              tests|scripts|docs|reports) ;;
+              *)
+                echo "Skipping unsupported input: $SOURCE_PATH"
+                continue
                 ;;
             esac
 
-            case "/$SOURCE_PATH/" in
-              *"/../"*)
-                echo "Invalid path: $SOURCE_PATH"
-                exit 1
-                ;;
-            esac
-
-            echo "Collecting: $SOURCE_PATH"
+            if [[ -n "${SEEN[$SOURCE_PATH]+x}" ]]; then
+              echo "Skipping duplicate: $SOURCE_PATH"
+              continue
+            fi
+            SEEN[$SOURCE_PATH]=1
 
             git -C source_repo checkout origin/HEAD -- "$SOURCE_PATH"
 
-            if [ ! -e "source_repo/$SOURCE_PATH" ]; then
-              echo "Path not found: $SOURCE_PATH"
-              exit 1
-            fi
+            test -e "source_repo/$SOURCE_PATH"
 
-            mkdir -p "source-import/$(dirname "$SOURCE_PATH")"
-
-            cp -a "source_repo/$SOURCE_PATH" \
-              "source-import/$SOURCE_PATH"
+            cp -a "source_repo/$SOURCE_PATH" source-import/
 
           done <<< "$SOURCE_PATHS"
 
-      - name: Commit collected files
+      - name: Commit collected folders
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
@@ -75,8 +67,8 @@ jobs:
           git add source-import/
 
           if ! git diff --cached --quiet; then
-            git commit -m "chore: collect multiple TLP source folders"
+            git commit -m "chore: collect remaining TLP folders"
             git push
           else
-            echo "No new changes to commit"
+            echo "No new changes"
           fi
