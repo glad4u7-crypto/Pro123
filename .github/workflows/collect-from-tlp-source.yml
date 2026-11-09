@@ -1,11 +1,10 @@
-
 name: Collect TLP Source Files
 
 on:
   workflow_dispatch:
     inputs:
       source_paths:
-        description: "One path per line"
+        description: "Comma-separated source paths"
         required: true
         type: string
 
@@ -17,48 +16,54 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout working repository
+        uses: actions/checkout@v4
 
-      - name: Collect folders
+      - name: Collect root files
         env:
           SOURCE_PATHS: ${{ inputs.source_paths }}
         run: |
           set -euo pipefail
 
-          git clone --depth 1 --filter=blob:none \
-            --no-checkout \
+          git clone --depth 1 \
             https://github.com/formarketon-lang/123.git \
             source_repo
 
-          declare -A SEEN=()
+          COUNT=0
 
-          while IFS= read -r SOURCE_PATH || [ -n "$SOURCE_PATH" ]; do
-            SOURCE_PATH="${SOURCE_PATH%$'\r'}"
+          while IFS= read -r SOURCE_PATH; do
+            SOURCE_PATH="$(echo "$SOURCE_PATH" | xargs)"
             [ -z "$SOURCE_PATH" ] && continue
 
             case "$SOURCE_PATH" in
-              tests|scripts|docs|reports) ;;
+              .gitignore|README.md|__init__.py|config.toml|requirements.txt|rs_engine.py|settings.py)
+                ;;
               *)
-                echo "Skipping unsupported input: $SOURCE_PATH"
-                continue
+                echo "Rejected path: $SOURCE_PATH"
+                exit 1
                 ;;
             esac
 
-            if [[ -n "${SEEN[$SOURCE_PATH]+x}" ]]; then
-              echo "Skipping duplicate: $SOURCE_PATH"
-              continue
+            if [ ! -f "source_repo/$SOURCE_PATH" ]; then
+              echo "File not found: $SOURCE_PATH"
+              exit 1
             fi
-            SEEN[$SOURCE_PATH]=1
 
-            git -C source_repo checkout origin/HEAD -- "$SOURCE_PATH"
+            mkdir -p "source-import"
+            cp "source_repo/$SOURCE_PATH" \
+              "source-import/$SOURCE_PATH"
 
-            test -e "source_repo/$SOURCE_PATH"
+            COUNT=$((COUNT + 1))
+            echo "Collected: $SOURCE_PATH"
 
-            cp -a "source_repo/$SOURCE_PATH" source-import/
+          done < <(printf '%s' "$SOURCE_PATHS" | tr ',' '\n')
 
-          done <<< "$SOURCE_PATHS"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No files selected"
+            exit 1
+          fi
 
-      - name: Commit collected folders
+      - name: Commit collected files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
@@ -67,8 +72,8 @@ jobs:
           git add source-import/
 
           if ! git diff --cached --quiet; then
-            git commit -m "chore: collect remaining TLP folders"
+            git commit -m "chore: collect TLP root files"
             git push
           else
-            echo "No new changes"
+            echo "No changes to commit"
           fi
