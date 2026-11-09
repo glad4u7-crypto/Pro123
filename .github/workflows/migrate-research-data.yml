@@ -1,4 +1,3 @@
-
 name: Migrate TLP Research Data
 
 on:
@@ -22,35 +21,70 @@ jobs:
         with:
           repository: formarketon-lang/TLP-Research-Data
           ref: main
-          path: research-data-source
+          path: research-source
           fetch-depth: 1
 
-      - name: Copy all research files
+      - name: Prepare destination folder
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p research-data
-          rsync -a --exclude='.git' research-data-source/ research-data/
-          rm -rf research-data/.git
 
-      - name: Verify copied files
+      - name: Copy all research data
         shell: bash
         run: |
           set -euo pipefail
 
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='SHA256SUMS' \
+            research-source/ research-data/
+
+          echo "Research data copy completed."
+
+      - name: Compare source and destination SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          (
+            cd research-source
+            find . -type f \
+              ! -path './.git/*' \
+              ! -name 'SHA256SUMS' \
+              -print0 |
+              sort -z |
+              xargs -0 sha256sum
+          ) > /tmp/source.sha256
+
+          (
+            cd research-data
+            find . -type f \
+              ! -name 'SHA256SUMS' \
+              -print0 |
+              sort -z |
+              xargs -0 sha256sum
+          ) > /tmp/destination.sha256
+
+          diff -u /tmp/source.sha256 /tmp/destination.sha256
+
+          echo "SOURCE VS DESTINATION: PASS"
+
+      - name: Create and verify SHA256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp /tmp/source.sha256 research-data/SHA256SUMS
+
           cd research-data
-
-          find . -type f -print0 |
-            sort -z |
-            xargs -0 sha256sum > SHA256SUMS
-
           sha256sum -c SHA256SUMS
 
-          echo "SHA256 verification: PASS"
-          echo "Total files:"
-          find . -type f ! -name 'SHA256SUMS' | wc -l
+          echo "SHA256 VERIFICATION: PASS"
+          echo "Total migrated files:"
+          wc -l < SHA256SUMS
 
-      - name: Commit migration
+      - name: Commit migrated research data
         shell: bash
         run: |
           set -euo pipefail
@@ -62,9 +96,17 @@ jobs:
           git add research-data/
 
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No changes to commit."
           else
             git commit -m \
-              "migration: import TLP research data with SHA256 verification"
+              "migration: complete TLP research data transfer with SHA256 verification"
             git push
           fi
+
+      - name: Migration summary
+        shell: bash
+        run: |
+          echo "TLP RESEARCH DATA MIGRATION: PASS"
+          echo "Source: formarketon-lang/TLP-Research-Data"
+          echo "Destination: glad4u7-crypto/Pro123"
+          echo "SHA256 comparison and verification completed."
