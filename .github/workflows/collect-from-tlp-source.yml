@@ -1,0 +1,69 @@
+
+name: Collect TLP Source Files
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_path:
+        description: "Path in formarketon-lang/123"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout working repository
+        uses: actions/checkout@v4
+
+      - name: Collect requested source
+        env:
+          SOURCE_PATH: ${{ inputs.source_path }}
+        run: |
+          set -euo pipefail
+
+          case "$SOURCE_PATH" in
+            ""|/*|..|../*|*/../*|*/..)
+              echo "Invalid source path"
+              exit 1
+              ;;
+          esac
+
+          git clone \
+            --depth 1 \
+            --filter=blob:none \
+            --no-checkout \
+            https://github.com/formarketon-lang/123.git \
+            source_repo
+
+          git -C source_repo checkout origin/HEAD -- "$SOURCE_PATH"
+
+          if [ ! -e "source_repo/$SOURCE_PATH" ]; then
+            echo "Requested source path not found"
+            exit 1
+          fi
+
+          mkdir -p "source-import/$(dirname "$SOURCE_PATH")"
+
+          cp -a "source_repo/$SOURCE_PATH" \
+            "source-import/$SOURCE_PATH"
+
+      - name: Commit collected files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add source-import/
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: collect files from TLP source"
+            git push
+          else
+            echo "No new changes to commit"
+          fi
+          
