@@ -1,0 +1,58 @@
+
+name: Complete TLP Migration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout destination repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout old repository
+        uses: actions/checkout@v4
+        with:
+          repository: formarketon-lang/123
+          path: old-source
+          fetch-depth: 1
+
+      - name: Copy remaining files
+        run: |
+          mkdir -p source-import/.github/workflows
+
+          cp old-source/settings.py source-import/settings.py
+
+          cp old-source/.github/workflows/*.yml \
+            source-import/.github/workflows/
+
+      - name: Verify copied files
+        run: |
+          test -f source-import/settings.py
+          test "$(find source-import/.github/workflows \
+            -maxdepth 1 -name '*.yml' | wc -l)" -eq 12
+
+          echo "Migration verification passed"
+          find source-import/.github/workflows \
+            -maxdepth 1 -type f
+
+      - name: Commit migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add source-import/settings.py \
+            source-import/.github/workflows/
+
+          git commit -m "migration: transfer remaining 13 source files" \
+            || echo "No changes to commit"
+
+          git push
