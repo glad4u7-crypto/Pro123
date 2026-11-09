@@ -4,8 +4,8 @@ name: Collect TLP Source Files
 on:
   workflow_dispatch:
     inputs:
-      source_path:
-        description: "Path in formarketon-lang/123"
+      source_paths:
+        description: "One source path per line"
         required: true
         type: string
 
@@ -20,18 +20,11 @@ jobs:
       - name: Checkout working repository
         uses: actions/checkout@v4
 
-      - name: Collect requested source
+      - name: Collect requested source paths
         env:
-          SOURCE_PATH: ${{ inputs.source_path }}
+          SOURCE_PATHS: ${{ inputs.source_paths }}
         run: |
           set -euo pipefail
-
-          case "$SOURCE_PATH" in
-            ""|/*|..|../*|*/../*|*/..)
-              echo "Invalid source path"
-              exit 1
-              ;;
-          esac
 
           git clone \
             --depth 1 \
@@ -40,17 +33,38 @@ jobs:
             https://github.com/formarketon-lang/123.git \
             source_repo
 
-          git -C source_repo checkout origin/HEAD -- "$SOURCE_PATH"
+          while IFS= read -r SOURCE_PATH; do
+            [ -z "$SOURCE_PATH" ] && continue
 
-          if [ ! -e "source_repo/$SOURCE_PATH" ]; then
-            echo "Requested source path not found"
-            exit 1
-          fi
+            case "$SOURCE_PATH" in
+              /*)
+                echo "Absolute paths are not allowed"
+                exit 1
+                ;;
+            esac
 
-          mkdir -p "source-import/$(dirname "$SOURCE_PATH")"
+            case "/$SOURCE_PATH/" in
+              *"/../"*)
+                echo "Invalid path: $SOURCE_PATH"
+                exit 1
+                ;;
+            esac
 
-          cp -a "source_repo/$SOURCE_PATH" \
-            "source-import/$SOURCE_PATH"
+            echo "Collecting: $SOURCE_PATH"
+
+            git -C source_repo checkout origin/HEAD -- "$SOURCE_PATH"
+
+            if [ ! -e "source_repo/$SOURCE_PATH" ]; then
+              echo "Path not found: $SOURCE_PATH"
+              exit 1
+            fi
+
+            mkdir -p "source-import/$(dirname "$SOURCE_PATH")"
+
+            cp -a "source_repo/$SOURCE_PATH" \
+              "source-import/$SOURCE_PATH"
+
+          done <<< "$SOURCE_PATHS"
 
       - name: Commit collected files
         run: |
@@ -61,9 +75,8 @@ jobs:
           git add source-import/
 
           if ! git diff --cached --quiet; then
-            git commit -m "chore: collect files from TLP source"
+            git commit -m "chore: collect multiple TLP source folders"
             git push
           else
             echo "No new changes to commit"
           fi
-          
