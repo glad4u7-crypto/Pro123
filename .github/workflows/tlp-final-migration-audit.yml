@@ -1,0 +1,141 @@
+name: TLP Final Migration Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout destination repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Checkout original TLP source
+        uses: actions/checkout@v4
+        with:
+          repository: formarketon-lang/123
+          ref: main
+          path: old-source
+          fetch-depth: 1
+
+      - name: Checkout original research data
+        uses: actions/checkout@v4
+        with:
+          repository: formarketon-lang/TLP-Research-Data
+          ref: main
+          path: research-source
+          fetch-depth: 1
+
+      - name: Verify complete source-code transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          (
+            cd old-source
+            find . -type f ! -path './.git/*' -print0 |
+              sort -z | xargs -0 sha256sum
+          ) | sed 's#  ./#  #' > /tmp/old-source.sha256
+
+          (
+            cd source-import
+            find . -type f -print0 |
+              sort -z | xargs -0 sha256sum
+          ) | sed 's#  ./#  #' > /tmp/source-import.sha256
+
+          diff -u /tmp/old-source.sha256 /tmp/source-import.sha256
+
+          echo "SOURCE CODE TRANSFER: PASS"
+          echo "Source files: $(wc -l < /tmp/old-source.sha256)"
+
+      - name: Verify complete research-data transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          (
+            cd research-source
+            find . -type f ! -path './.git/*' -print0 |
+              sort -z | xargs -0 sha256sum
+          ) | sed 's#  ./#  #' > /tmp/research-source.sha256
+
+          (
+            cd research-data
+            find . -type f ! -name 'SHA256SUMS' -print0 |
+              sort -z | xargs -0 sha256sum
+          ) | sed 's#  ./#  #' > /tmp/research-destination.sha256
+
+          diff -u /tmp/research-source.sha256 /tmp/research-destination.sha256
+
+          echo "RESEARCH DATA TRANSFER: PASS"
+          echo "Research files: $(wc -l < /tmp/research-source.sha256)"
+
+      - name: Verify stored SHA256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s research-data/SHA256SUMS
+          cd research-data
+          sha256sum -c SHA256SUMS
+          echo "STORED SHA256 MANIFEST: PASS"
+
+      - name: Verify ZIP archives and official NSE guidelines
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for archive in research-data/*.zip; do
+            test -f "$archive"
+            unzip -t "$archive"
+            echo "ARCHIVE INTEGRITY PASS: $archive"
+          done
+
+          mkdir -p /tmp/tlp-classification-evidence
+
+          unzip -q \
+            research-data/TLP_Official_Classification_Evidence.zip \
+            -d /tmp/tlp-classification-evidence
+
+          guideline_pdf="$(find /tmp/tlp-classification-evidence \
+            -type f \
+            -iname 'nse_industry_classification_guidelines.pdf' \
+            -print -quit)"
+
+          if [ -z "$guideline_pdf" ]; then
+            echo "REQUIRED OFFICIAL GUIDELINES PDF NOT FOUND"
+            echo "Do not substitute structure.pdf."
+            exit 1
+          fi
+
+          test -s "$guideline_pdf"
+
+          echo "OFFICIAL NSE GUIDELINES PDF: FOUND"
+          echo "$guideline_pdf"
+          echo "CLASSIFICATION ZIP CONTENT CHECK: PASS"
+
+      - name: Verify official classification workbook
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          unzip -t \
+            research-data/TLP_Official_Classification_Source_Audit.xlsx
+
+          echo "CLASSIFICATION WORKBOOK: INTEGRITY PASS"
+
+      - name: Final audit summary
+        shell: bash
+        run: |
+          echo "TLP FINAL MIGRATION AUDIT: PASS"
+          echo "Old source repository: verified"
+          echo "Research data repository: verified"
+          echo "SHA256 manifest: verified"
+          echo "ZIP archives: verified"
+          echo "Official NSE Guidelines PDF: verified"
+          
