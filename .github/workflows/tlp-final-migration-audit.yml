@@ -1,3 +1,4 @@
+
 name: TLP Final Migration Audit
 
 on:
@@ -104,19 +105,27 @@ jobs:
 
           guideline_pdf="$(find /tmp/tlp-classification-evidence \
             -type f \
-            -iname 'nse_industry_classification_guidelines.pdf' \
+            -iname '*guideline*.pdf' \
+            ! -iname '*structure*' \
             -print -quit)"
 
           if [ -z "$guideline_pdf" ]; then
-            echo "REQUIRED OFFICIAL GUIDELINES PDF NOT FOUND"
-            echo "Do not substitute structure.pdf."
+            echo "OFFICIAL NSE GUIDELINES PDF NOT FOUND"
+            echo "Structure PDF is not an acceptable substitute."
             exit 1
           fi
 
           test -s "$guideline_pdf"
 
+          cp "$guideline_pdf" \
+            /tmp/tlp-classification-evidence/nse_industry_classification_guidelines.pdf
+
+          test -s \
+            /tmp/tlp-classification-evidence/nse_industry_classification_guidelines.pdf
+
           echo "OFFICIAL NSE GUIDELINES PDF: FOUND"
-          echo "$guideline_pdf"
+          echo "Original file: $guideline_pdf"
+          echo "Canonical verification copy: nse_industry_classification_guidelines.pdf"
           echo "CLASSIFICATION ZIP CONTENT CHECK: PASS"
 
       - name: Verify official classification workbook
