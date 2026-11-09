@@ -1,0 +1,95 @@
+
+# TradeLab Pro automated data integrity audit
+
+name: TradeLab Pro Data Integrity Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  data-integrity-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          python -m pytest -q
+
+      - name: Prepare NSE data directory
+        run: |
+          mkdir -p data/raw/nse
+
+      - name: Download MARICO NSE data
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/formarketon-lang/TLP-Research-Data/main/31-10-2025-TO-29-10-2026-MARICO-EQ-N-1.csv" \
+            --output data/raw/nse/MARICO_nse.csv
+
+      - name: Download NIFTY 50 NSE data
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/formarketon-lang/TLP-Research-Data/main/NIFTY%2050_Historical_PR_30102025to29102026.csv" \
+            --output data/raw/nse/NIFTY_50_nse.csv
+
+      - name: Download NIFTY FMCG NSE data
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/formarketon-lang/TLP-Research-Data/main/NIFTY%20FMCG_Historical_PR_30102025to29102026.csv" \
+            --output data/raw/nse/NIFTY_FMCG_nse.csv
+
+      - name: Verify NSE files
+        run: |
+          echo "========== NSE DATA FILES =========="
+          ls -lh data/raw/nse/
+
+          test -s data/raw/nse/MARICO_nse.csv
+          test -s data/raw/nse/NIFTY_50_nse.csv
+          test -s data/raw/nse/NIFTY_FMCG_nse.csv
+
+          echo "All three NSE files downloaded successfully."
+
+      - name: Download Yahoo data
+        run: |
+          python -m scripts.run_yahoo_live_check
+
+      - name: Run Data Integrity Audit
+        run: |
+          python -m scripts.run_data_integrity_audit
+
+      - name: Save historical reports to GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add reports/data_integrity/
+
+          git diff --cached --quiet || \
+            git commit -m "Store data integrity audit report"
+
+          git push
+
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradelab-data-integrity-audit
+          path: |
+            data/raw/nse/
+            data/raw/yahoo/
+            reports/data_integrity/
+          if-no-files-found: error

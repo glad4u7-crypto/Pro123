@@ -1,0 +1,72 @@
+name: TLP NSE Classification Source Downloader
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/run_industry_classification_source_downloader.py"
+      - "scripts/run_nse_classification_taxonomy_extraction.py"
+      - "tests/test_industry_classification_source_downloader.py"
+      - "tests/test_nse_classification_taxonomy_extraction.py"
+      - "requirements.txt"
+      - ".github/workflows/nse-classification-source-downloader.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  classification-source-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run downloader tests
+        run: |
+          python -m pytest -v \
+            tests/test_industry_classification_source_downloader.py
+
+      - name: Run taxonomy extraction tests
+        run: |
+          python -m pytest -v \
+            tests/test_nse_classification_taxonomy_extraction.py
+
+      - name: Download official NSE sources
+        run: |
+          python -m scripts.run_industry_classification_source_downloader
+
+      - name: Extract official NSE taxonomy
+        run: |
+          python -m scripts.run_nse_classification_taxonomy_extraction
+
+      - name: Verify audit reports
+        run: |
+          echo "========== SOURCE AUDIT =========="
+          cat reports/industry_classification/nse_official_classification_source_audit.json
+
+          echo "========== TAXONOMY AUDIT =========="
+          cat reports/industry_classification/nse_official_taxonomy_extraction.json
+
+          echo "========== TAXONOMY CSV =========="
+          head -20 data/raw/nse/industry_classification_sources/nse_official_taxonomy.csv
+
+      - name: Upload classification audit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlp-nse-official-taxonomy-audit
+          path: |
+            data/raw/nse/industry_classification_sources/
+            reports/industry_classification/
+          if-no-files-found: error
+          retention-days: 30
